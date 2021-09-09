@@ -1,5 +1,13 @@
 const LEVEL_MAX = 80;
 const BLU_LEVEL_MAX = 70;
+const TOTAL_LEVELS_BATTLE = ((LEVEL_MAX * 16) + BLU_LEVEL_MAX);
+const TOTAL_LEVELS_CRAFT_GATHERING = 11 * LEVEL_MAX;
+const TOTAL_LEVELS  = TOTAL_LEVELS_CRAFT_GATHERING + TOTAL_LEVELS_BATTLE;
+const TANK_CLASS_ID = [1,3,32,37];
+const MELEE_DPS_CLASS_ID = [2,4,29,34];
+const HEALER_CLASS_ID = [6,4,29,34];
+const PHYS_RANGED_DPS_CLASS_ID = [2,4,29,34];
+const MAG_RANGED_DPS_CLASS_ID = [2,4,29,34];
 const xp = new Map([
     [1, 0],
     [2, 300],
@@ -89,7 +97,7 @@ async function searchCharacter(charName, server) {
     var searchUrl = new URL("https://xivapi.com/character/search"), params = { name: charName, server: server };
     Object.keys(params).forEach(key => searchUrl.searchParams.append(key, params[key]));
 
-    const response = await fetch(searchUrl)
+    const response = await fetch(searchUrl, {cache: "force-cache"})
         .catch(function (err) {
             console.log('Fetch Error :-S', err);
         });
@@ -99,8 +107,6 @@ async function searchCharacter(charName, server) {
             response.status);
         return;
     }
-
-    // Examine the text in the response
     let data = await response.json();
     //document.getElementById("json").textContent = JSON.stringify(data, undefined, 2);
     if (data && data.Results) {
@@ -116,7 +122,7 @@ async function getCharacterInfo(lodestoneId) {
     let getCharacterUrl = new URL(lodestoneId, "https://xivapi.com/character/");
     console.log("getCharacterInfo " + lodestoneId);
 
-    const response = await fetch(getCharacterUrl)
+    const response = await fetch(getCharacterUrl, {cache: "force-cache"})
         .catch(function (err) {
             console.log('Fetch Error :-S', err);
         });
@@ -127,7 +133,6 @@ async function getCharacterInfo(lodestoneId) {
         return;
     }
 
-    // Examine the text in the response
     let data = await response.json();
     //document.getElementById("json").textContent = JSON.stringify(data, undefined, 2);
     if (data && data.Character && data.Character.ClassJobs) {
@@ -173,20 +178,30 @@ async function calculate(classJobs, targetDate) {
                 name: classJobs[i].UnlockedState.Name,
                 level: classJobs[i].Level,
                 levelExp: classJobs[i].ExpLevel,
-                levelExpToGo: classJobs[i].ExpLevelTogo
+                levelExpToGo: classJobs[i].ExpLevelTogo,
+                isSpecialised: classJobs.IsSpecialised
+
             };
+
+            if(TANK_CLASS_ID.includes(classJobs[i].ClassID)){
+                classDto.tank = true;
+            }
+
+            if(MELEE_DPS_CLASS_ID.includes(classJobs[i].ClassID)){
+                classDto.meleeDps = true;
+            }
 
             if (classJobs[i].ClassID == 36) {
                 classDto.levelsToGo = BLU_LEVEL_MAX - classJobs[i].Level
                 classDto.exp = xp.get(classJobs[i].Level) + classJobs[i].ExpLevel;
                 classDto.expToGo = xp.get(BLU_LEVEL_MAX) - classDto.exp;
+                classDto.name = "Blue Mage";
             } else {
                 classDto.levelsToGo = LEVEL_MAX - classJobs[i].Level
                 classDto.exp = xp.get(classJobs[i].Level) + classJobs[i].ExpLevel;
                 classDto.expToGo = xp.get(LEVEL_MAX) - classDto.exp;
             }
-
-
+            
             if (classJobs[i].JobID > 7 && classJobs[i].JobID < 19) {
 
                 data.craftingGathering.levelsToGo += classDto.levelsToGo
@@ -199,17 +214,23 @@ async function calculate(classJobs, targetDate) {
                 data.combat.levels += classDto.level
                 data.combat.exp += classDto.exp;
                 data.combat.expToGo += classDto.expToGo
+                 
             }
 
             data.jobs.push(classDto);
         }
 
+        data.combat.percentage = ((TOTAL_LEVELS_BATTLE - data.combat.levelsToGo) / TOTAL_LEVELS_BATTLE) * 100;
+        data.craftingGathering.percentage = ((TOTAL_LEVELS_CRAFT_GATHERING - data.craftingGathering.levelsToGo) / TOTAL_LEVELS_CRAFT_GATHERING) * 100;
         data.levels = data.combat.levels + data.craftingGathering.levels;
         data.levelsToGo = data.combat.levelsToGo + data.craftingGathering.levelsToGo;
+        data.percentage = ((TOTAL_LEVELS - data.levelsToGo) / TOTAL_LEVELS) * 100;
         data.exp = data.combat.exp + data.craftingGathering.exp;
         data.expToGo = data.combat.expToGo + data.craftingGathering.expToGo;
         data.expPerDay = data.expToGo / data.daysToGo;
         data.levelsPerDay = data.levelsToGo / data.daysToGo;
+        data.wholeLevelsPerDay= Math.ceil(data.levelsToGo / data.daysToGo);
+        data.daysToGoIfWholeLevel =  Math.ceil(data.levelsToGo / data.wholeLevelsPerDay);
         data.craftingGathering.expPerDay = data.craftingGathering.expToGo / data.daysToGo;
         data.craftingGathering.levelsPerDay = data.craftingGathering.levelsToGo / data.daysToGo;
         data.combat.expPerDay = data.combat.expToGo / data.daysToGo;
@@ -218,17 +239,102 @@ async function calculate(classJobs, targetDate) {
     return data;
 }
 
+
+
+const createRow = function(classData) {
+    var row = document.createElement("div");
+    row.className = "row";
+
+    var icon = document.createElement("div");
+    icon.className = "col-1 icon";
+    const stringName = classData.name.replace(/\s+/g, '');
+    icon.appendChild(document.createElement("img")).src = `images/jobicons/${stringName}.png`
+    row.appendChild(icon);
+
+    var level = document.createElement("div");
+    levelText = document.createElement("p").innerText = classData.level
+    level.append(levelText);
+    row.appendChild(level);
+
+    var classNamePercent = document.createElement("div");
+    classNamePercent.className = "col"
+    var percentageDiv = document.createElement("div");
+    percentageDiv.className = "row";
+    var percentage = document.createElement("div");
+    percentage.className = "progress";
+    var percentageBar = document.createElement("div");
+    percentageBar.className = "progress-bar bg-light-gray";
+    percentageBar.setAttribute("role", "progressbar");
+    var levelPercentage = 0;
+    if(classData.levelExpToGo != 0) {
+        levelPercentage = Math.round((classData.levelExp / (classData.levelExp + classData.levelExpToGo)) * 100);
+        level.className = "col-1 level";
+    } else {
+        level.className = "col-1 levelMax";
+    }
+    percentageBar.setAttribute("aria-valuenow", levelPercentage);
+    percentageBar.setAttribute("aria-valuemin", 0);
+    percentageBar.setAttribute("aria-valuemax", 100);
+    percentageBar.innerText = `${levelPercentage}%`;
+    percentageBar.style = `width: ${levelPercentage}%`;
+    percentage.appendChild(percentageBar);
+    percentageDiv.appendChild(percentage);
+
+    var jobName = document.createElement("div");
+    jobName.className = "row jobName";
+    jobName.innerText = classData.name;
+
+    classNamePercent.appendChild(jobName)
+    classNamePercent.appendChild(percentageDiv)
+    
+    row.appendChild(classNamePercent);
+
+    return row;    
+}
+
+const populateTableThingyIDontKnowWhatImDoing = async function(data) {
+    if (data) {
+        let container = document.getElementById("jobList");
+        let containterGrid = document.createElement("div");
+        containterGrid.className = "row";
+        let tankCol = document.createElement("div")
+        tankCol.className = "col jobType";
+        let dpsCol = document.createElement("div")
+        dpsCol.className = "col jobType";
+        for (let i = 0, len = data.jobs.length; i < len; i++) {
+            var row = createRow(data.jobs[i]);
+            if(data.jobs[i].tank) {
+                tankCol.appendChild(row);
+            } else if(data.jobs[i].meleeDps) {
+                dpsCol.appendChild(row);
+            } else {
+                tankCol.appendChild(row);
+            }
+        }
+
+        containterGrid.appendChild(tankCol)
+        containterGrid.appendChild(dpsCol)
+        container.appendChild(containterGrid)
+    }
+
+}
+
 const getCharFromForm = async function () {
     let charName = document.getElementById("charName").value;
     let server = document.getElementById("server").value;
-    console.log(charName, server);
+    let targetDate = new Date(document.getElementById("targetDate").value);
+    console.log(targetDate);
     let lodestoneId = await searchCharacter(charName, server);
+    if (lodestoneId) {
     let classJobs = await getCharacterInfo(lodestoneId);
-    let targetDate = new Date(2021, 10, 18);
     let data = await calculate(classJobs, targetDate);
     console.log(data);
     document.getElementById("json").textContent = JSON.stringify(data, undefined, 2);
     document.getElementById('characterSearch').innerHTML = "";
+    populateTableThingyIDontKnowWhatImDoing(await data);
+    } else {
+
+    }
 }
     
 
@@ -240,5 +346,3 @@ const start = async function () {
 
 
 }
-
-//start();
