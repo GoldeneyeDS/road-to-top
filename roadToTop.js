@@ -97,7 +97,7 @@ async function searchCharacter(charName, server) {
     var searchUrl = new URL("https://xivapi.com/character/search"), params = { name: charName, server: server };
     Object.keys(params).forEach(key => searchUrl.searchParams.append(key, params[key]));
 
-    const response = await fetch(searchUrl, {cache: "force-cache"})
+    const response = await fetch(searchUrl)
         .catch(function (err) {
             console.log('Fetch Error :-S', err);
         });
@@ -122,7 +122,7 @@ async function getCharacterInfo(lodestoneId) {
     let getCharacterUrl = new URL(lodestoneId, "https://xivapi.com/character/");
     console.log("getCharacterInfo " + lodestoneId);
 
-    const response = await fetch(getCharacterUrl, {cache: "force-cache"})
+    const response = await fetch(getCharacterUrl)
         .catch(function (err) {
             console.log('Fetch Error :-S', err);
         });
