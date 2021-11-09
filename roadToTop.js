@@ -2,12 +2,14 @@ const LEVEL_MAX = 80;
 const BLU_LEVEL_MAX = 70;
 const TOTAL_LEVELS_BATTLE = ((LEVEL_MAX * 16) + BLU_LEVEL_MAX);
 const TOTAL_LEVELS_CRAFT_GATHERING = 11 * LEVEL_MAX;
-const TOTAL_LEVELS  = TOTAL_LEVELS_CRAFT_GATHERING + TOTAL_LEVELS_BATTLE;
-const TANK_CLASS_ID = [1,3,32,37];
-const MELEE_DPS_CLASS_ID = [2,4,29,34];
-const HEALER_CLASS_ID = [6,4,29,34];
-const PHYS_RANGED_DPS_CLASS_ID = [2,4,29,34];
-const MAG_RANGED_DPS_CLASS_ID = [2,4,29,34];
+const TOTAL_LEVELS = TOTAL_LEVELS_CRAFT_GATHERING + TOTAL_LEVELS_BATTLE;
+const TANK_JOB_ID = [1, 3, 19, 21, 32, 37];
+const MELEE_DPS_JOB_ID = [2, 4, 20, 22, 29, 30, 34];
+const HEALER_JOB_ID = [6, 24, 26, 28, 33];
+const PHYS_RANGED_JOB_ID = [5, 4, 23, 29, 31, 38];
+const MAG_RANGED_JOB_ID = [7, 25, 26, 27, 29, 35, 36];
+const DOH_JOB_ID = [8, 9, 10, 11, 12, 13, 14, 15]
+const DOL_JOB_ID = [16, 17, 18]
 const xp = new Map([
     [1, 0],
     [2, 300],
@@ -92,12 +94,12 @@ const xp = new Map([
 ]);
 
 
-async function searchCharacter(charName, server) {
+async function searchCharacter(charName) {
     let lodestoneId;
-    var searchUrl = new URL("https://xivapi.com/character/search"), params = { name: charName, server: server };
+    var searchUrl = new URL("https://xivapi.com/character/search"), params = { name: charName };
     Object.keys(params).forEach(key => searchUrl.searchParams.append(key, params[key]));
 
-    const response = await fetch(searchUrl)
+    const response = await fetch(searchUrl, { cache: "force-cache" })
         .catch(function (err) {
             console.log('Fetch Error :-S', err);
         });
@@ -122,7 +124,7 @@ async function getCharacterInfo(lodestoneId) {
     let getCharacterUrl = new URL(lodestoneId, "https://xivapi.com/character/");
     console.log("getCharacterInfo " + lodestoneId);
 
-    const response = await fetch(getCharacterUrl)
+    const response = await fetch(getCharacterUrl, { cache: "reload" })
         .catch(function (err) {
             console.log('Fetch Error :-S', err);
         });
@@ -147,6 +149,8 @@ async function calculate(classJobs, targetDate) {
     let data = {
         jobs: [],
         levels: 0,
+        partialLevels: 0,
+        partialLevelsToGo: 0,
         levelsToGo: 0,
         exp: 0,
         expToGo: 0,
@@ -156,12 +160,16 @@ async function calculate(classJobs, targetDate) {
         expPerDay: 0,
         combat: {
             levels: 0,
+            partialLevel: 0,
+            partialLevelToGo: 0,
             levelsToGo: 0,
             exp: 0,
             expToGo: 0,
         },
         craftingGathering: {
             levels: 0,
+            partialLevel: 0,
+            partialLevelToGo: 0,
             levelsToGo: 0,
             exp: 0,
             expToGo: 0,
@@ -169,7 +177,7 @@ async function calculate(classJobs, targetDate) {
         }
     }
 
-    
+
 
     if (classJobs) {
         for (let i = 0, len = classJobs.length; i < len; i++) {
@@ -179,71 +187,99 @@ async function calculate(classJobs, targetDate) {
                 level: classJobs[i].Level,
                 levelExp: classJobs[i].ExpLevel,
                 levelExpToGo: classJobs[i].ExpLevelTogo,
-                isSpecialised: classJobs.IsSpecialised
+                isSpecialised: classJobs.IsSpecialised,
+                partialLevel: classJobs[i].ClassID == 36 ? BLU_LEVEL_MAX : LEVEL_MAX,
+                partialLevelToGo: 0
 
             };
 
-            if(TANK_CLASS_ID.includes(classJobs[i].ClassID)){
-                classDto.tank = true;
+            if (classDto.levelExpToGo != 0) {
+                classDto.partialLevel = classJobs[i].Level + (classJobs[i].ExpLevel / (classJobs[i].ExpLevel + classJobs[i].ExpLevelTogo))
             }
 
-            if(MELEE_DPS_CLASS_ID.includes(classJobs[i].ClassID)){
+            if (TANK_JOB_ID.includes(classJobs[i].JobID)) {
+                classDto.tank = true;
+            } else if (MELEE_DPS_JOB_ID.includes(classJobs[i].JobID)) {
                 classDto.meleeDps = true;
+            } else if (HEALER_JOB_ID.includes(classJobs[i].JobID)) {
+                classDto.healer = true;
+            } else if (PHYS_RANGED_JOB_ID.includes(classJobs[i].JobID)) {
+                classDto.physRanged = true;
+            } else if (MAG_RANGED_JOB_ID.includes(classJobs[i].JobID)) {
+                classDto.magRanged = true;
+            } else if (DOH_JOB_ID.includes(classJobs[i].JobID)) {
+                classDto.doh = true;
+            } else if (DOL_JOB_ID.includes(classJobs[i].JobID)) {
+                classDto.dol = true;
             }
+
 
             if (classJobs[i].ClassID == 36) {
                 classDto.levelsToGo = BLU_LEVEL_MAX - classJobs[i].Level
                 classDto.exp = xp.get(classJobs[i].Level) + classJobs[i].ExpLevel;
                 classDto.expToGo = xp.get(BLU_LEVEL_MAX) - classDto.exp;
                 classDto.name = "Blue Mage";
+                classDto.partialLevelToGo = BLU_LEVEL_MAX - classDto.partialLevel;
             } else {
                 classDto.levelsToGo = LEVEL_MAX - classJobs[i].Level
                 classDto.exp = xp.get(classJobs[i].Level) + classJobs[i].ExpLevel;
                 classDto.expToGo = xp.get(LEVEL_MAX) - classDto.exp;
+                classDto.partialLevelToGo = LEVEL_MAX - classDto.partialLevel;
             }
-            
+
             if (classJobs[i].JobID > 7 && classJobs[i].JobID < 19) {
 
                 data.craftingGathering.levelsToGo += classDto.levelsToGo
                 data.craftingGathering.levels += classDto.level
+                data.craftingGathering.partialLevel += classDto.partialLevel;
+                data.craftingGathering.partialLevelToGo += classDto.partialLevelToGo;
                 data.craftingGathering.exp += classDto.exp;
                 data.craftingGathering.expToGo += classDto.expToGo
-                
+
             } else if (classJobs[i].JobID !== 27) {
                 data.combat.levelsToGo += classDto.levelsToGo
                 data.combat.levels += classDto.level
+                data.combat.partialLevel += classDto.partialLevel;
+                data.combat.partialLevelToGo += classDto.partialLevelToGo;
                 data.combat.exp += classDto.exp;
                 data.combat.expToGo += classDto.expToGo
-                 
+
             }
 
             data.jobs.push(classDto);
         }
 
-        data.combat.percentage = ((TOTAL_LEVELS_BATTLE - data.combat.levelsToGo) / TOTAL_LEVELS_BATTLE) * 100;
-        data.craftingGathering.percentage = ((TOTAL_LEVELS_CRAFT_GATHERING - data.craftingGathering.levelsToGo) / TOTAL_LEVELS_CRAFT_GATHERING) * 100;
+        data.combat.percentage = ((TOTAL_LEVELS_BATTLE - data.combat.partialLevelToGo) / TOTAL_LEVELS_BATTLE) * 100;
+        data.combat.expPerDay = data.combat.expToGo / data.daysToGo;
+        data.combat.levelsPerDay = data.combat.partialLevelToGo / data.daysToGo;
+
+        data.craftingGathering.expPerDay = data.craftingGathering.expToGo / data.daysToGo;
+        data.craftingGathering.levelsPerDay = data.craftingGathering.partialLevelToGo / data.daysToGo;
+        data.craftingGathering.percentage = ((TOTAL_LEVELS_CRAFT_GATHERING - data.craftingGathering.partialLevelToGo) / TOTAL_LEVELS_CRAFT_GATHERING) * 100;
+
         data.levels = data.combat.levels + data.craftingGathering.levels;
+        data.partialLevels = data.combat.partialLevel + data.craftingGathering.partialLevel;
+        data.partialLevelsToGo = data.combat.partialLevelToGo + data.craftingGathering.partialLevelToGo;
         data.levelsToGo = data.combat.levelsToGo + data.craftingGathering.levelsToGo;
-        data.percentage = ((TOTAL_LEVELS - data.levelsToGo) / TOTAL_LEVELS) * 100;
+
+        data.percentage = ((TOTAL_LEVELS - data.partialLevelsToGo) / TOTAL_LEVELS) * 100;
+
         data.exp = data.combat.exp + data.craftingGathering.exp;
         data.expToGo = data.combat.expToGo + data.craftingGathering.expToGo;
         data.expPerDay = data.expToGo / data.daysToGo;
-        data.levelsPerDay = data.levelsToGo / data.daysToGo;
-        data.wholeLevelsPerDay= Math.ceil(data.levelsToGo / data.daysToGo);
-        data.daysToGoIfWholeLevel =  Math.ceil(data.levelsToGo / data.wholeLevelsPerDay);
-        data.craftingGathering.expPerDay = data.craftingGathering.expToGo / data.daysToGo;
-        data.craftingGathering.levelsPerDay = data.craftingGathering.levelsToGo / data.daysToGo;
-        data.combat.expPerDay = data.combat.expToGo / data.daysToGo;
-        data.combat.levelsPerDay = data.combat.levelsToGo / data.daysToGo;
+        data.levelsPerDay = data.partialLevelsToGo / data.daysToGo;
+        data.wholeLevelsPerDay = Math.ceil(data.partialLevelsToGo / data.daysToGo);
+        data.daysToGoIfWholeLevel = Math.ceil(data.levelsToGo / data.wholeLevelsPerDay);
+
     }
     return data;
 }
 
 
 
-const createRow = function(classData) {
+const createRow = function (classData) {
     var row = document.createElement("div");
-    row.className = "row";
+    row.className = "row jobrow";
 
     var icon = document.createElement("div");
     icon.className = "col-1 icon";
@@ -266,7 +302,7 @@ const createRow = function(classData) {
     percentageBar.className = "progress-bar bg-light-gray";
     percentageBar.setAttribute("role", "progressbar");
     var levelPercentage = 0;
-    if(classData.levelExpToGo != 0) {
+    if (classData.levelExpToGo != 0) {
         levelPercentage = Math.round((classData.levelExp / (classData.levelExp + classData.levelExpToGo)) * 100);
         level.className = "col-1 level";
     } else {
@@ -286,63 +322,110 @@ const createRow = function(classData) {
 
     classNamePercent.appendChild(jobName)
     classNamePercent.appendChild(percentageDiv)
-    
+
     row.appendChild(classNamePercent);
 
-    return row;    
+    return row;
 }
 
-const populateTableThingyIDontKnowWhatImDoing = async function(data) {
+const createEmptyCol = function () {
+    let empty = document.createElement("div")
+    empty.className = "col jobType";
+    var row = document.createElement("div");
+    row.className = "row jobrow";
+    empty.appendChild(row);
+    return empty
+}
+
+const populateTableThingyIDontKnowWhatImDoing = async function (data) {
     if (data) {
-        let container = document.getElementById("jobList");
-        let containterGrid = document.createElement("div");
-        containterGrid.className = "row";
+        let div = document.getElementById("charTable");
+        div.className="charTable"
+        let container = document.createElement("div");
+        container.className = "container-fluid";
+        container.id = "jobList";
+        container.tabIndex = "2";
+        let tankMelee = document.createElement("div");
+        tankMelee.className = "row";
         let tankCol = document.createElement("div")
         tankCol.className = "col jobType";
         let dpsCol = document.createElement("div")
         dpsCol.className = "col jobType";
+        let healerCol = document.createElement("div")
+        healerCol.className = "col jobType";
+        let rangedDpsCol = document.createElement("div")
+        rangedDpsCol.className = "col jobType";
+        let magRangedDpsCol = document.createElement("div")
+        magRangedDpsCol.className = "col jobType";
+        let dohCol = document.createElement("div")
+        dohCol.className = "col jobType";
+        let dolCol = document.createElement("div")
+        dolCol.className = "col jobType";
         for (let i = 0, len = data.jobs.length; i < len; i++) {
             var row = createRow(data.jobs[i]);
-            if(data.jobs[i].tank) {
+            if (data.jobs[i].tank) {
                 tankCol.appendChild(row);
-            } else if(data.jobs[i].meleeDps) {
+            } else if (data.jobs[i].meleeDps) {
                 dpsCol.appendChild(row);
-            } else {
-                tankCol.appendChild(row);
+            } else if (data.jobs[i].healer) {
+                healerCol.appendChild(row);
+            } else if (data.jobs[i].physRanged) {
+                rangedDpsCol.appendChild(row);
+            } else if (data.jobs[i].magRanged) {
+                magRangedDpsCol.appendChild(row);
+            } else if (data.jobs[i].doh) {
+                dohCol.appendChild(row);
+            } else if (data.jobs[i].dol) {
+                dolCol.appendChild(row);
             }
         }
 
-        containterGrid.appendChild(tankCol)
-        containterGrid.appendChild(dpsCol)
-        container.appendChild(containterGrid)
+        tankMelee.appendChild(tankCol)
+        tankMelee.appendChild(dpsCol)
+
+        let healerRanged = document.createElement("div");
+        healerRanged.className = "row";
+        healerRanged.appendChild(healerCol)
+        healerRanged.appendChild(rangedDpsCol)
+
+        let mag = document.createElement("div");
+        mag.className = "row";
+
+        mag.appendChild(createEmptyCol())
+        mag.appendChild(magRangedDpsCol)
+
+        let dohdol = document.createElement("div");
+        dohdol.className = "row";
+        dohdol.appendChild(dohCol);
+        dohdol.appendChild(dolCol);
+
+        container.appendChild(tankMelee)
+        container.appendChild(healerRanged)
+        container.appendChild(mag)
+        container.appendChild(dohdol)
+
+        div.appendChild(container)
     }
 
 }
 
 const getCharFromForm = async function () {
     let charName = document.getElementById("charName").value;
-    let server = document.getElementById("server").value;
+    let lodestoneId = document.getElementById("lodestoneId").value;
+    //let server = document.getElementById("server").value;
     let targetDate = new Date(document.getElementById("targetDate").value);
     console.log(targetDate);
-    let lodestoneId = await searchCharacter(charName, server);
+    if (!lodestoneId) {
+        lodestoneId = await searchCharacter(charName);
+    }
     if (lodestoneId) {
-    let classJobs = await getCharacterInfo(lodestoneId);
-    let data = await calculate(classJobs, targetDate);
-    console.log(data);
-    document.getElementById("json").textContent = JSON.stringify(data, undefined, 2);
-    document.getElementById('characterSearch').innerHTML = "";
-    populateTableThingyIDontKnowWhatImDoing(await data);
+        let classJobs = await getCharacterInfo(lodestoneId);
+        let data = await calculate(classJobs, targetDate);
+        console.log(data);
+        document.getElementById("json").textContent = JSON.stringify(data, undefined, 2);
+        document.getElementById('characterSearch').innerHTML = "";
+        populateTableThingyIDontKnowWhatImDoing(await data);
     } else {
 
     }
-}
-    
-
-const start = async function () {
-    let lodestoneId = await searchCharacter();
-    let classJobs = await getCharacterInfo(lodestoneId);
-    let targetDate = new Date(2021, 10, 18);
-    let data = await calculate(classJobs, targetDate);
-
-
 }
